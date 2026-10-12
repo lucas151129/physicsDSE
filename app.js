@@ -594,6 +594,17 @@ function questionKind(question) {
   return "計算題 · 短題目";
 }
 
+function questionLevel(question) {
+  if (question.level === "1") return "程度一";
+  if (question.level === "2") return "程度二";
+  return "";
+}
+
+function questionMeta(question) {
+  const level = questionLevel(question);
+  return (level ? level + " · " : "") + questionKind(question) + " · " + question.marks + " 分";
+}
+
 function questionsFor(kpId) {
   return this.QUESTIONS.filter((question) => question.kpId === kpId);
 }
@@ -620,26 +631,39 @@ function renderPoint(id) {
     return '<div class="wrap"><a class="back" href="#/">返回掌握情況</a><h1>待開放</h1><p class="lede">這個知識點尚未開放。</p></div>';
   }
   const questions = questionsFor(id);
+  let levelCount = 0;
+  let previousLevel = "";
   const list = questions
-    .map((question, index) => {
+    .map((question) => {
+      const level = questionLevel(question);
+      if (level !== previousLevel) {
+        levelCount = 0;
+        previousLevel = level;
+      }
+      levelCount += 1;
+      const heading = level ? '<h2 class="group-label">' + level + "</h2>" : "";
+      const showHeading = levelCount === 1 && level ? heading : "";
       return (
+        showHeading +
         '<a class="chapter-row" href="#/practice/' +
         question.id +
         '"><span class="idx" style="color:' +
         found.chapter.color +
         '">' +
-        String(index + 1).padStart(2, "0") +
+        String(levelCount).padStart(2, "0") +
         '</span><span><span class="chapter-name">' +
         esc(question.title) +
         '</span><span class="chapter-sub">' +
-        esc(questionKind(question)) +
-        " · " +
-        question.marks +
-        " 分</span></span></a>"
+        esc(questionMeta(question)) +
+        "</span></span></a>"
       );
     })
     .join("");
   const notes = id === "motion.moment" ? renderMomentNotes() : "";
+  const energyNote =
+    id === "motion.energy"
+      ? '<p class="lede">程度一是單一關係，程度二要把兩個高度、摩擦或外力作功放在一起。數值題取 g = 10 m/s²。</p>'
+      : "";
   return (
     '<div class="wrap"><a class="back" href="#/chapter/' +
     found.chapter.id +
@@ -647,6 +671,7 @@ function renderPoint(id) {
     esc(found.chapter.name) +
     "</a>" +
     (notes || '<p class="kicker">' + esc(found.chapter.name) + "</p><h1>" + esc(found.kp.name) + "</h1>") +
+    energyNote +
     '<h2 class="group-label">做題</h2><div class="chapter-list">' +
     (list || '<p class="empty">尚未有題目。</p>') +
     "</div></div>"
@@ -675,7 +700,7 @@ function renderPractice(id) {
         '><span class="q-no">' +
         String(number + 1).padStart(2, "0") +
         " · " +
-        esc(questionKind(item)) +
+        esc(questionMeta(item)) +
         "</span><strong>" +
         esc(item.title) +
         "</strong></a>"

@@ -178,7 +178,8 @@ this.CHAPTERS = [
           },
           {
             "id": "motion.energy",
-            "name": "能量守恆"
+            "name": "能量守恆",
+            "open": true
           },
           {
             "id": "motion.power",

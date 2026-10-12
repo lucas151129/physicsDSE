@@ -118,18 +118,21 @@ for (const chapter of CHAPTERS) {
   }
 }
 assert(
-  "only two points open",
-  openPoints.length === 2 &&
+  "three points open",
+  openPoints.length === 3 &&
     openPoints[0].id === "motion.components" &&
     openPoints[0].name === "力的合成與分解進階題" &&
     openPoints[1].id === "motion.moment" &&
-    openPoints[1].name === "力矩"
+    openPoints[1].name === "力矩" &&
+    openPoints[2].id === "motion.energy" &&
+    openPoints[2].name === "能量守恆"
 );
 
 const bank = {};
 vm.createContext(bank);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "questions.js"), "utf8"), bank);
-assert("ten practice questions", bank.QUESTIONS.length === 10);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "questions-energy.js"), "utf8"), bank);
+assert("seventy practice questions", bank.QUESTIONS.length === 70);
 assert(
   "questions are mc or calc",
   bank.QUESTIONS.every((item) => item.type === "mc" || item.type === "calc")
@@ -140,8 +143,53 @@ assert(
 );
 assert(
   "questions stay on the open points",
-  bank.QUESTIONS.every((item) => item.kpId === "motion.components" || item.kpId === "motion.moment")
+  bank.QUESTIONS.every((item) => item.kpId === "motion.components" || item.kpId === "motion.moment" || item.kpId === "motion.energy")
 );
+const energy = bank.QUESTIONS.filter((item) => item.kpId === "motion.energy");
+assert("forty energy multiple choice", energy.filter((item) => item.type === "mc").length === 40);
+assert("twenty energy calculations", energy.filter((item) => item.type === "calc").length === 20);
+assert(
+  "energy levels split evenly",
+  energy.filter((item) => item.level === "1" && item.type === "mc").length === 20 &&
+    energy.filter((item) => item.level === "2" && item.type === "mc").length === 20 &&
+    energy.filter((item) => item.level === "1" && item.type === "calc").length === 10 &&
+    energy.filter((item) => item.level === "2" && item.type === "calc").length === 10
+);
+assert(
+  "marking points add up",
+  bank.QUESTIONS.filter((item) => item.type === "calc").every(
+    (item) => item.points.reduce((sum, point) => sum + point.marks, 0) === item.marks
+  )
+);
+const expectAnswer = {
+  "energy-mc-01": "C",
+  "energy-mc-12": "C",
+  "energy-mc-21": "B",
+  "energy-mc-22": "C",
+  "energy-mc-23": "C",
+  "energy-mc-24": "C",
+  "energy-mc-31": "B",
+  "energy-mc-40": "B",
+};
+for (const [id, answer] of Object.entries(expectAnswer)) {
+  assert(id + " key", bank.QUESTIONS.find((item) => item.id === id).answer === answer);
+}
+const expectText = {
+  "energy-calc-01": "24 J",
+  "energy-calc-03": "10 m/s",
+  "energy-calc-06": "10 m/s",
+  "energy-calc-09": "7.2 m",
+  "energy-calc-11": "6 m/s",
+  "energy-calc-13": "6 m/s",
+  "energy-calc-15": "8 m/s",
+  "energy-calc-16": "0.8 m",
+  "energy-calc-19": "10 m/s",
+  "energy-calc-20": "15 J",
+};
+for (const [id, text] of Object.entries(expectText)) {
+  const item = bank.QUESTIONS.find((question) => question.id === id);
+  assert(id + " solution", item.solution.join(" ").includes(text));
+}
 assert("moment notes", bank.MOMENT_NOTES && bank.MOMENT_NOTES.title === "力矩知識點總結" && bank.MOMENT_NOTES.sections.length === 4);
 const bankText = JSON.stringify(bank.QUESTIONS) + JSON.stringify(bank.MOMENT_NOTES);
 assert("bank is not the publisher paper", !/07A1Q|活學物理|Pearson/.test(bankText));
