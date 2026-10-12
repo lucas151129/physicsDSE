@@ -7,6 +7,7 @@ vm.createContext(context);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "data.js"), "utf8"), context);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "grader.js"), "utf8"), context);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "deepseek.js"), "utf8"), context);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "grader.fixtures.js"), "utf8"), context);
 
 const { QUESTIONS, CHAPTERS, parseNumber, gradeQuestion, interpretDeepseekGrade } = context;
 const q = Object.fromEntries(QUESTIONS.map((item) => [item.id, item]));
@@ -101,13 +102,9 @@ assert("79 knowledge points", points === 79);
 const hours = CHAPTERS.reduce((sum, chapter) => sum + chapter.hours, 0);
 assert("184 hours", hours === 184);
 
-function mastery(chapter) {
-  const all = chapter.groups.flatMap((group) => group.points).filter((kp) => kp.score != null);
-  return all.reduce((sum, kp) => sum + kp.score, 0) / all.length;
-}
-let weighted = 0;
-for (const chapter of CHAPTERS) weighted += mastery(chapter) * chapter.hours;
-console.log("overall", Math.round(weighted / hours));
-for (const chapter of CHAPTERS) {
-  console.log(chapter.id, Math.round(mastery(chapter)));
-}
+assert(
+  "no sample scores",
+  CHAPTERS.every((chapter) =>
+    chapter.groups.every((group) => group.points.every((kp) => kp.score == null && kp.n == null))
+  )
+);

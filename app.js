@@ -4,10 +4,19 @@ const state = {
   formError: "",
   lastResult: null,
   mistakes: [],
-  baseline: null,
   grading: false,
-  gradeService: "checking",
+  gradeService: "down",
+  profile: null,
+  students: [],
+  people: [],
+  attempts: [],
+  authError: "",
+  authNotice: "",
+  busy: false,
 };
+
+const RECENT_WEIGHTS = [1, 1, 1, 2, 2, 3, 3, 4];
+let sb = null;
 
 function allPoints(chapter) {
   return chapter.groups.flatMap((group) => group.points);
@@ -111,11 +120,20 @@ function route() {
   const parts = (location.hash.replace(/^#/, "") || "/").split("/").filter(Boolean);
   const name = parts[0] || "home";
   if (name === "chapter") return { name, id: parts[1] };
-  if (name === "practice") return { name, id: parts[1] || this.QUESTIONS[0].id };
+  if (name === "practice") return { name, id: parts[1] || "" };
   if (name === "mistakes") return { name, filter: parts[1] || "all" };
-  if (name === "class") return { name: "class" };
-  if (name === "settings") return { name: "settings" };
+  if (name === "teacher") return { name: "teacher" };
+  if (name === "register") return { name: "register" };
+  if (name === "students") return { name: "students" };
+  if (name === "accounts") return { name: "accounts" };
+  if (name === "student") {
+    return { name: "student", id: parts[1] || "", chapterId: parts[2] === "chapter" ? parts[3] : "" };
+  }
   return { name: "home" };
+}
+
+function isStaff(profile) {
+  return Boolean(profile && (profile.role === "admin" || profile.role === "super"));
 }
 
 function chapterById(id) {
@@ -123,7 +141,7 @@ function chapterById(id) {
 }
 
 function questionById(id) {
-  return this.QUESTIONS.find((question) => question.id === id) || this.QUESTIONS[0];
+  return this.QUESTIONS.find((question) => question.id === id) || null;
 }
 
 function lowestPoint(chapter) {
@@ -136,44 +154,82 @@ function openMistakes() {
   return state.mistakes.filter((item) => item.status !== "mastered");
 }
 
-function freezeClassScores() {
+function scoresFromAttempts(attempts) {
+  const byKp = new Map();
+  for (const row of attempts) {
+    if (!row.kp_id) continue;
+    if (!byKp.has(row.kp_id)) byKp.set(row.kp_id, []);
+    byKp.get(row.kp_id).push(row);
+  }
+  const scores = new Map();
+  for (const [id, rows] of byKp) {
+    const ordered = rows.slice().sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    const recent = ordered.slice(-8);
+    const weights = RECENT_WEIGHTS.slice(-recent.length);
+    let got = 0;
+    let full = 0;
+    recent.forEach((row, index) => {
+      const marks = Number(row.marks);
+      if (!marks) return;
+      got += (Number(row.earned) / marks) * weights[index];
+      full += weights[index];
+    });
+    if (full) scores.set(id, { score: Math.round((got / full) * 100), n: ordered.length });
+  }
+  return scores;
+}
+
+function overallFromAttempts(attempts) {
+  const scores = scoresFromAttempts(attempts);
+  let weighted = 0;
+  let hours = 0;
+  for (const chapter of this.CHAPTERS) {
+    const started = allPoints(chapter).map((kp) => scores.get(kp.id)).filter(Boolean);
+    if (!started.length) continue;
+    const mastery = started.reduce((sum, item) => sum + item.score, 0) / started.length;
+    weighted += mastery * chapter.hours;
+    hours += chapter.hours;
+  }
+  return hours ? weighted / hours : null;
+}
+
+function applyAttempts(attempts) {
+  const scores = scoresFromAttempts(attempts);
   for (const chapter of this.CHAPTERS) {
     for (const kp of allPoints(chapter)) {
-      if (kp.score == null) {
-        kp.classScore = null;
-        continue;
-      }
-      const delta = kp.classDelta == null ? -2 : kp.classDelta;
-      kp.classScore = Math.max(0, Math.min(100, Math.round(kp.score + delta)));
+      const found = scores.get(kp.id);
+      kp.score = found ? found.score : null;
+      kp.n = found ? found.n : 0;
     }
   }
 }
 
-function cloneData() {
-  freezeClassScores();
-  state.baseline = JSON.stringify({
-    chapters: this.CHAPTERS.map((chapter) => ({
-      id: chapter.id,
-      points: allPoints(chapter).map((kp) => ({ id: kp.id, score: kp.score, n: kp.n })),
-    })),
-    mistakes: this.MISTAKES,
-  });
-  state.mistakes = this.MISTAKES.map((item) => ({ ...item }));
-}
-
-function restoreData() {
-  const saved = JSON.parse(state.baseline);
-  for (const chapter of saved.chapters) {
-    for (const point of chapter.points) {
-      const found = findKp(point.id);
-      found.kp.score = point.score;
-      found.kp.n = point.n;
-    }
+function deriveMistakes(attempts) {
+  const groups = new Map();
+  for (const row of attempts) {
+    const key = row.question_id || row.id;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
   }
-  state.mistakes = saved.mistakes.map((item) => ({ ...item }));
-  state.drafts = {};
-  state.formError = "";
-  state.lastResult = null;
+  const list = [];
+  for (const rows of groups.values()) {
+    const ordered = rows.slice().sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    const last = ordered[ordered.length - 1];
+    const full = ordered.some((row) => Number(row.earned) === Number(row.marks) && Number(row.marks) > 0);
+    list.push({
+      questionId: last.question_id || "",
+      chapterId: last.chapter_id,
+      kpId: last.kp_id,
+      title: last.title || "作答",
+      type: "",
+      status: full ? "mastered" : ordered.length > 1 ? "again" : "retry",
+      reason: last.reason || "",
+      score: last.earned + "/" + last.marks,
+      when: last.created_at ? new Date(last.created_at).toLocaleDateString("zh-HK") : "",
+    });
+  }
+  list.sort((a, b) => String(b.when).localeCompare(String(a.when)));
+  return list;
 }
 
 function recordAttempt(kp, ratio) {
@@ -224,37 +280,155 @@ function syncMistake(question, graded) {
 
 function render() {
   const current = route();
+  const gate = document.querySelector("#gate");
+  const shell = document.querySelector("#shell");
+  const entry = document.querySelector("#teacher-entry");
+  const showTeacherGate = current.name === "teacher" && !isStaff(state.profile);
+  if (!state.profile || showTeacherGate) {
+    if (shell) shell.hidden = true;
+    if (gate) {
+      gate.hidden = false;
+      gate.innerHTML = renderGate(showTeacherGate ? { name: "teacher" } : current);
+    }
+    if (entry) entry.hidden = current.name === "teacher";
+    document.title = (current.name === "register" ? "註冊" : current.name === "teacher" ? "教師登入" : "登入") + " · FunLearning 物理";
+    return;
+  }
+  if (gate) gate.hidden = true;
+  if (shell) shell.hidden = false;
+  if (!isStaff(state.profile) && (current.name === "students" || current.name === "accounts" || current.name === "student")) {
+    location.hash = "#/";
+    return;
+  }
+  if (isStaff(state.profile) && ["home", "chapter", "practice", "mistakes", "register", "teacher"].includes(current.name)) {
+    location.hash = "#/students";
+    return;
+  }
+  paintChrome(current);
   const main = document.querySelector("#main");
   const titles = {
     home: "掌握情況",
     chapter: "課題",
     practice: "做題",
     mistakes: "錯題本",
-    class: "班別",
-    settings: "DeepSeek",
+    students: "學生",
+    student: "學生",
+    accounts: "添加帳戶",
   };
-  document.title = titles[current.name] + " · FunLearning 物理";
-  for (const link of document.querySelectorAll(".nav a")) {
-    const key = link.dataset.route;
-    const on =
-      key === current.name || (key === "home" && current.name === "chapter");
-    if (on) link.setAttribute("aria-current", "page");
-    else link.removeAttribute("aria-current");
-  }
-  document.querySelector("#mistake-count").textContent = String(openMistakes().length);
-  const keyState = document.querySelector("#deepseek-state");
-  if (keyState) {
-    const labels = { checking: "檢查中", ready: "已接上", missing: "未設定", down: "未接上" };
-    keyState.textContent = labels[state.gradeService] || "未接上";
-    keyState.classList.toggle("on", state.gradeService === "ready");
+  document.title = (titles[current.name] || "FunLearning 物理") + " · FunLearning 物理";
+  if (isStaff(state.profile) && current.name === "student") {
+    const rows = state.attempts.filter((row) => row.student_id === current.id);
+    applyAttempts(rows);
+  } else if (!isStaff(state.profile)) {
+    applyAttempts(state.attempts);
+    state.mistakes = deriveMistakes(state.attempts);
   }
   if (current.name === "chapter") main.innerHTML = renderChapter(current.id);
   else if (current.name === "practice") main.innerHTML = renderPractice(current.id);
   else if (current.name === "mistakes") main.innerHTML = renderMistakes(current.filter);
-  else if (current.name === "class") main.innerHTML = renderClass();
-  else if (current.name === "settings") main.innerHTML = renderSettings();
+  else if (current.name === "students") main.innerHTML = renderStudentList();
+  else if (current.name === "accounts") main.innerHTML = renderAccounts();
+  else if (current.name === "student") main.innerHTML = renderStudentDetail(current);
   else main.innerHTML = renderHome();
+  const count = document.querySelector("#mistake-count");
+  if (count) count.textContent = String(openMistakes().length);
   main.focus({ preventScroll: true });
+}
+
+function paintChrome(current) {
+  const staff = isStaff(state.profile);
+  const nav = document.querySelector("#nav");
+  const entry = document.querySelector("#teacher-entry");
+  if (entry) entry.hidden = staff;
+  if (staff) {
+    nav.innerHTML =
+      '<a href="#/students" data-route="students">學生</a>' +
+      (state.profile.role === "super" ? '<a href="#/accounts" data-route="accounts">添加帳戶</a>' : "");
+  } else if (!nav.querySelector('[data-route="home"]')) {
+    nav.innerHTML =
+      '<a href="#/" data-route="home">掌握情況</a>' +
+      '<a href="#/practice" data-route="practice">做題</a>' +
+      '<a href="#/mistakes" data-route="mistakes">錯題本 <span class="count" id="mistake-count">0</span></a>';
+  }
+  for (const link of nav.querySelectorAll("a")) {
+    const key = link.dataset.route;
+    const on = key === current.name || (key === "home" && current.name === "chapter") || (key === "students" && current.name === "student");
+    if (on) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+  const who = document.querySelector("#who");
+  if (who) {
+    const roleLabel = state.profile.role === "super" ? "總帳號" : state.profile.role === "admin" ? "管理員" : state.profile.class_name || "";
+    who.textContent = state.profile.name + (roleLabel ? " · " + roleLabel : "");
+  }
+}
+
+function renderGate(current) {
+  const error = state.authError ? '<p class="form-error">' + esc(state.authError) + "</p>" : "";
+  const notice = state.authNotice ? '<p class="grader-note">' + esc(state.authNotice) + "</p>" : "";
+  if (current.name === "register") {
+    return (
+      '<form class="gate-card" method="post" action="#" data-auth="register">' +
+      '<p class="kicker">學生註冊</p><h1>建立學生帳號</h1>' +
+      '<p class="lede">註冊只會建立學生帳號。填電郵、姓名和班別。</p>' +
+      error +
+      notice +
+      field("email", "電郵", "email", "email") +
+      field("name", "姓名", "text", "name") +
+      field("class_name", "班別", "text", "organization") +
+      field("password", "密碼", "password", "new-password") +
+      '<div class="actions"><button class="btn" type="submit"' +
+      (state.busy ? " disabled" : "") +
+      ">註冊</button>" +
+      '<a href="#/">已有帳號，登入</a></div></form>'
+    );
+  }
+  if (current.name === "teacher") {
+    const back = state.profile ? '<a href="#/">返回學生版</a>' : '<a href="#/">學生登入</a>';
+    return (
+      '<form class="gate-card" method="post" action="#" data-auth="teacher">' +
+      '<p class="kicker">教師</p><h1>教師登入</h1>' +
+      '<p class="lede">這裡不能註冊。管理員和總帳號由總帳號建立。</p>' +
+      error +
+      notice +
+      field("email", "電郵", "email", "username") +
+      field("password", "密碼", "password", "current-password") +
+      '<div class="actions"><button class="btn" type="submit"' +
+      (state.busy ? " disabled" : "") +
+      ">登入</button>" +
+      back +
+      "</div></form>"
+    );
+  }
+  return (
+    '<form class="gate-card" method="post" action="#" data-auth="login">' +
+    '<p class="kicker">學生</p><h1>登入</h1>' +
+    '<p class="lede">用註冊時的電郵和密碼。登入後只會看到自己的掌握情況。</p>' +
+    error +
+    notice +
+    field("email", "電郵", "email", "username") +
+    field("password", "密碼", "password", "current-password") +
+    '<div class="actions"><button class="btn" type="submit"' +
+    (state.busy ? " disabled" : "") +
+    ">登入</button>" +
+    '<a href="#/register">註冊學生帳號</a></div></form>'
+  );
+}
+
+function field(name, label, type, auto, required) {
+  return (
+    '<label class="field"><span>' +
+    label +
+    '</span><input name="' +
+    name +
+    '" type="' +
+    type +
+    '" autocomplete="' +
+    auto +
+    '"' +
+    (required === false ? "" : " required") +
+    "></label>"
+  );
 }
 
 function renderHome() {
@@ -310,7 +484,7 @@ function renderHome() {
   return (
     '<div class="wrap">' +
     '<div class="page-head"><div><p class="kicker">必修部分 · 五個課題 · 184 小時</p><h1>掌握情況</h1>' +
-    '<p class="lede">示範學生。課題百分比是已作答知識點的平均得分率，整體再按課題時數加權。未做過的知識點計入覆蓋，不計入得分率。</p></div>' +
+    '<p class="lede">課題百分比是已作答知識點的平均得分率，整體再按課題時數加權。未做過的知識點計入覆蓋，不計入得分率。最近 8 次越近越重。</p></div>' +
     '<div class="segmented" role="group" aria-label="排列">' +
     '<button type="button" data-sort="curriculum" aria-pressed="' +
     (state.homeSort === "curriculum") +
@@ -330,7 +504,7 @@ function renderHome() {
     '<div class="chapter-list">' +
     rows +
     "</div>" +
-    '<p class="note">示例成績用來定畫面。做題頁交一卷之後，對應知識點的得分率會按累計平均更新；正式版改為最近 8 次、越近越重。選修部分不在這版。</p></div>'
+    '<p class="note">選修部分不在這版。還沒有作答時，課題顯示為未開始。</p></div>'
   );
 }
 
@@ -393,7 +567,13 @@ function renderChapter(id) {
 }
 
 function renderPractice(id) {
+  if (!this.QUESTIONS.length) {
+    return '<div class="wrap"><p class="kicker">題庫</p><h1>做題</h1><p class="lede">尚未有題目。</p></div>';
+  }
   const question = questionById(id);
+  if (!question) {
+    return '<div class="wrap"><p class="kicker">題庫</p><h1>做題</h1><p class="lede">尚未有題目。</p></div>';
+  }
   const found = findKp(question.kpId);
   const draft = state.drafts[question.id] || {};
   const index = this.QUESTIONS.map((item, number) => {
@@ -415,8 +595,8 @@ function renderPractice(id) {
     );
   }).join("");
   return (
-    '<div class="wrap"><p class="kicker">三題示範，分別走選擇、數值、結構</p><h1>做題</h1>' +
-    '<p class="lede">選擇題和數值題由程式對答案，數值題可以認出常見錯法。結構題正式批改時，把評分準則和學生答案送給模型；這一題先用同一份準則做要點對照。原型為了離線示範，答案放在頁面裡；正式版答案和評分準則只留在伺服器。</p>' +
+    '<div class="wrap"><p class="kicker">選擇、數值、結構</p><h1>做題</h1>' +
+    '<p class="lede">選擇題和數值題由程式對答案。結構題把作答送到批改服務，標準答案不放在這個頁面。</p>' +
     '<nav class="q-index">' +
     index +
     "</nav>" +
@@ -586,9 +766,11 @@ function renderMistakes(filter) {
     ? items
         .map((item) => {
           const found = findKp(item.kpId);
-          const redo = item.questionId
-            ? '<a class="redo" href="#/practice/' + item.questionId + '">重做這題</a>'
-            : "<span></span>";
+          const where = found ? found.chapter.name + " · " + found.kp.name : "";
+          const redo =
+            item.questionId && questionById(item.questionId)
+              ? '<a class="redo" href="#/practice/' + item.questionId + '">重做這題</a>'
+              : "<span></span>";
           return (
             '<article class="mistake"><p class="status ' +
             item.status +
@@ -597,10 +779,8 @@ function renderMistakes(filter) {
             '</p><div><h2>' +
             esc(item.title) +
             '</h2><p>' +
-            esc(found.chapter.name) +
-            " · " +
-            esc(found.kp.name) +
-            " · " +
+            esc(where) +
+            (where ? " · " : "") +
             esc(item.type) +
             " · " +
             esc(item.score) +
@@ -620,91 +800,13 @@ function renderMistakes(filter) {
     '<p class="lede">第一次未滿分是待重做；再做仍未滿分是重做仍錯；之後有一次滿分就改為已掌握，紀錄仍保留。</p>' +
     filters +
     rows +
-    '<p class="note">有「重做這題」的是示範題庫裡可作答的題。其餘是錯題本的紀錄樣式，題幹在正式題庫。</p></div>'
+    "</div>"
   );
 }
 
 function filterLink(id, label, current) {
   const on = id === current ? ' aria-current="page"' : "";
   return '<a href="#/mistakes/' + id + '"' + on + ">" + label + "</a>";
-}
-
-function renderClass() {
-  const cover = coverage("class");
-  const weak = weakPoints("class").slice(0, 8);
-  const rows = this.CHAPTERS.map((chapter) => {
-    const stats = summarize(allPoints(chapter), "class");
-    const width = stats.mastery == null ? 0 : Math.round(stats.mastery);
-    return (
-      '<div class="kp"><span class="kp-name">' +
-      esc(chapter.name) +
-      " · " +
-      chapter.hours +
-      ' 小時</span><span class="band ' +
-      bandForScore(stats.mastery).key +
-      '">' +
-      bandForScore(stats.mastery).label +
-      '</span><span class="bar"><span style="width:' +
-      width +
-      "%;background:" +
-      chapter.color +
-      '"></span></span><span class="pct">' +
-      pctText(stats.mastery) +
-      '<small>%</small></span><span class="tries">' +
-      stats.started +
-      "/" +
-      stats.total +
-      "</span></div>"
-    );
-  }).join("");
-  const weakRows = weak
-    .map((item) => {
-      return (
-        "<li><span>" +
-        esc(item.kp.name) +
-        '</span><span class="where">' +
-        esc(item.chapter.name) +
-        '</span><span class="pct">' +
-        Math.round(item.score) +
-        "<small>%</small></span></li>"
-      );
-    })
-    .join("");
-  return (
-    '<div class="wrap"><p class="kicker">示範班 · 28 人</p><h1>班別</h1>' +
-    '<p class="lede">看課題和知識點的班平均，不排學生名次。個人頁用同一份知識點。這裡的數字是示例。</p>' +
-    '<ul class="stats"><li class="stat"><b>' +
-    pctText(overall("class")) +
-    '%</b><span>班整體，按時數加權</span></li><li class="stat"><b>' +
-    weakPoints("class").length +
-    '</b><span>班上初學知識點</span></li><li class="stat"><b>' +
-    cover.started +
-    "/" +
-    cover.total +
-    '</b><span>已有作答的知識點</span></li></ul>' +
-    '<h2 class="group-label">五個課題</h2><div class="class-table">' +
-    rows +
-    '</div><h2 class="group-label">最低的八個知識點</h2><ul class="weak-list">' +
-    weakRows +
-    '</ul><p class="note">下一課可以從這份清單裡還沒教穩的知識點選。高壓輸電、噪音、核裂變和質能關係在示例裡尚未開課，所以不出現在最低分，只算進覆蓋。</p></div>'
-  );
-}
-
-function renderSettings() {
-  const status = {
-    checking: "正在檢查批改服務。",
-    ready: "已接上。學生交結構題時，由伺服器上的 DeepSeek 批改。",
-    missing: "服務有回應，但伺服器尚未放入金鑰。結構題暫時用要點對照。",
-    down: "還連不到批改服務。結構題暫時用要點對照。",
-  };
-  return (
-    '<div class="wrap"><p class="kicker">結構題</p><h1>批改服務</h1>' +
-    '<p class="lede">學生直接做題，不必持有金鑰，也無法在頁面裡看到金鑰。瀏覽器只把答案送到我們的批改服務，服務再用放在伺服器上的 DeepSeek 金鑰去批改。</p>' +
-    '<p class="note">把金鑰加密後放進網頁做不到這件事。瀏覽器若自己持有金鑰，原始碼和網絡請求裡就看得到。金鑰只放在 Supabase 的環境變數 DEEPSEEK_API_KEY。</p>' +
-    '<p class="grader-note">' +
-    esc(status[state.gradeService] || status.down) +
-    '</p><div class="actions"><button class="btn" type="button" data-act="check-service">重新檢查</button></div></div>'
-  );
 }
 
 function onMainClick(event) {
@@ -752,10 +854,16 @@ function finishGrade(question, graded) {
 
 async function onSubmit(event) {
   const form = event.target;
-  if (!form.dataset || !form.dataset.qid) return;
+  if (!form.dataset) return;
+  if (form.dataset.account) {
+    event.preventDefault();
+    await onCreateAccount(form);
+    return;
+  }
+  if (!form.dataset.qid) return;
   event.preventDefault();
-  if (state.grading) return;
   const question = questionById(form.dataset.qid);
+  if (!question || state.grading) return;
   const data = new FormData(form);
   const response = {
     choice: data.get("choice") || "",
@@ -804,23 +912,246 @@ async function onSubmit(event) {
   finishGrade(question, graded);
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  cloneData();
+function renderStudentList() {
+  const groups = new Map();
+  for (const student of state.students) {
+    const key = student.class_name || "未分班";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(student);
+  }
+  let body = "";
+  if (!state.students.length) {
+    body = '<p class="empty">還沒有學生。學生可以自行註冊，總帳號也可以添加。</p>';
+  }
+  for (const [className, list] of groups) {
+    body += '<h2 class="group-label">' + esc(className) + "</h2>";
+    body += list
+      .map((student) => {
+        const mine = state.attempts.filter((row) => row.student_id === student.id);
+        return (
+          '<a class="student-row" href="#/student/' +
+          student.id +
+          '"><span>' +
+          esc(student.name) +
+          '</span><span>' +
+          esc(student.email) +
+          "</span><b>" +
+          pctText(overallFromAttempts(mine)) +
+          "<small>%</small></b></a>"
+        );
+      })
+      .join("");
+  }
+  return (
+    '<div class="wrap"><p class="kicker">教師</p><h1>學生</h1>' +
+    '<p class="lede">只列出學生。學生登入後只能看到自己的掌握情況和錯題本。</p>' +
+    body +
+    "</div>"
+  );
+}
+
+function renderStudentDetail(current) {
+  const student = state.students.find((item) => item.id === current.id);
+  if (!student || !/^[0-9a-f-]{36}$/i.test(student.id)) {
+    return '<div class="wrap"><a class="back" href="#/students">返回學生名單</a><p>找不到這個學生。</p></div>';
+  }
+  const keep = (value) => String(value).replace(/\$/g, "$$$$");
+  if (current.chapterId) {
+    return renderChapter(current.chapterId)
+      .replace('href="#/"', 'href="#/student/' + student.id + '"')
+      .replace("返回掌握情況", keep("返回" + esc(student.name)));
+  }
+  const head =
+    '<div class="wrap"><a class="back" href="#/students">返回學生名單</a><p class="kicker">' +
+    esc(student.class_name || "未分班") +
+    " · " +
+    esc(student.email) +
+    "</p>";
+  return renderHome()
+    .replace("<h1>掌握情況</h1>", keep("<h1>" + esc(student.name) + "</h1>"))
+    .replace('<div class="wrap">', keep(head))
+    .replace(/href="#\/chapter\//g, 'href="#/student/' + student.id + "/chapter/");
+}
+
+function renderAccounts() {
+  if (!state.profile || state.profile.role !== "super") {
+    return '<div class="wrap"><p>只有總帳號可以添加帳戶。</p></div>';
+  }
+  const admins = state.people.filter((person) => person.role === "admin");
+  const adminRows = admins.length
+    ? admins
+        .map(
+          (person) =>
+            "<li>" + esc(person.name) + " · " + esc(person.email) + "</li>"
+        )
+        .join("")
+    : "<li>還沒有管理員。</li>";
+  return (
+    '<div class="wrap"><p class="kicker">總帳號</p><h1>添加帳戶</h1>' +
+    '<p class="lede">可以添加管理員或學生。學生註冊頁不能建立這兩種以外的帳號，也不能自行成為管理員。</p>' +
+    (state.formError ? '<p class="form-error">' + esc(state.formError) + "</p>" : "") +
+    (state.authNotice ? '<p class="grader-note">' + esc(state.authNotice) + "</p>" : "") +
+    '<form class="answer" method="post" action="#" data-account="1">' +
+    '<label class="field"><span>身分</span><select name="role"><option value="student">學生</option><option value="admin">管理員</option></select></label>' +
+    field("email", "電郵", "email", "off") +
+    field("name", "姓名", "text", "name") +
+    field("class_name", "班別（學生要填）", "text", "off", false) +
+    field("password", "密碼", "password", "new-password") +
+    '<div class="actions"><button class="btn" type="submit"' +
+    (state.busy ? " disabled" : "") +
+    ">建立</button></div></form>" +
+    '<h2 class="group-label">管理員</h2><ul class="plain">' +
+    adminRows +
+    "</ul></div>"
+  );
+}
+
+function authMessage(error) {
+  const message = String((error && error.message) || "");
+  if (error && error.code === "PGRST205") return "資料庫還沒有建好。請在 Supabase 的 SQL Editor 執行 supabase/physics.sql。";
+  if (/invalid login/i.test(message)) return "電郵或密碼不對。";
+  if (/already registered/i.test(message)) return "這個電郵已經註冊。";
+  if (/password/i.test(message) && /least/i.test(message)) return "密碼至少 6 個字。";
+  return message || "沒有完成。";
+}
+
+async function loadWorkspace(user) {
+  const { data, error } = await sb.from("physics_users").select("*").eq("id", user.id).maybeSingle();
+  if (error) {
+    state.profile = null;
+    state.authError = authMessage(error);
+    render();
+    return;
+  }
+  if (!data) {
+    state.profile = null;
+    state.authError = "這個登入還沒有物理帳戶。";
+    await sb.auth.signOut();
+    render();
+    return;
+  }
+  state.profile = data;
+  state.authError = "";
+  const attemptQuery = sb.from("physics_attempts").select("*").order("created_at", { ascending: true });
+  const attemptResult = isStaff(data) ? await attemptQuery : await attemptQuery.eq("student_id", data.id);
+  state.attempts = attemptResult.data || [];
+  if (isStaff(data)) {
+    const peopleResult = await sb.from("physics_users").select("*").order("class_name", { ascending: true });
+    state.people = peopleResult.data || [];
+    state.students = state.people.filter((person) => person.role === "student");
+    const here = route().name;
+    if (["home", "teacher", "register", "practice", "mistakes", "chapter"].includes(here)) location.hash = "#/students";
+  } else {
+    state.students = [];
+    state.people = [];
+    applyAttempts(state.attempts);
+    state.mistakes = deriveMistakes(state.attempts);
+    if (route().name === "register" || route().name === "teacher") location.hash = "#/";
+  }
+  render();
+}
+
+async function onGateSubmit(event) {
+  const form = event.target;
+  if (!form.dataset || !form.dataset.auth) return;
+  event.preventDefault();
+  if (state.busy) return;
+  const data = new FormData(form);
+  const email = String(data.get("email") || "").trim();
+  const password = String(data.get("password") || "");
+  const name = String(data.get("name") || "").trim();
+  const className = String(data.get("class_name") || "").trim();
+  state.busy = true;
+  state.authError = "";
+  state.authNotice = "";
+  render();
+  try {
+    if (form.dataset.auth === "register") {
+      if (!name || !className) throw new Error("要填姓名和班別。");
+      if (password.length < 6) throw new Error("密碼至少 6 個字。");
+      const result = await sb.auth.signUp({
+        email,
+        password,
+        options: { data: { app: "physics", name, class_name: className } },
+      });
+      if (result.error) throw result.error;
+      if (result.data.session) {
+        await loadWorkspace(result.data.session.user);
+        return;
+      }
+      state.authNotice = "帳號已建立。請用這組電郵和密碼登入。";
+      location.hash = "#/";
+    } else {
+      const result = await sb.auth.signInWithPassword({ email, password });
+      if (result.error) throw result.error;
+      await loadWorkspace(result.data.user);
+      return;
+    }
+  } catch (err) {
+    state.authError = authMessage(err);
+  } finally {
+    state.busy = false;
+    if (!state.profile || route().name === "teacher") render();
+  }
+}
+
+async function onCreateAccount(form) {
+  if (state.busy) return;
+  const data = new FormData(form);
+  const role = String(data.get("role") || "student");
+  const email = String(data.get("email") || "").trim();
+  const name = String(data.get("name") || "").trim();
+  const className = String(data.get("class_name") || "").trim();
+  const password = String(data.get("password") || "");
+  state.busy = true;
+  state.formError = "";
+  state.authNotice = "";
+  render();
+  const result = await sb.rpc("physics_create_account", {
+    p_email: email,
+    p_password: password,
+    p_name: name,
+    p_class_name: role === "student" ? className : "",
+    p_role: role,
+  });
+  state.busy = false;
+  if (result.error) {
+    state.formError = authMessage(result.error);
+    render();
+    return;
+  }
+  state.authNotice = "已建立。對方可以用這個電郵和密碼登入。";
+  const userResult = await sb.auth.getUser();
+  if (userResult.data.user) await loadWorkspace(userResult.data.user);
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const main = document.querySelector("#main");
   main.addEventListener("click", onMainClick);
   main.addEventListener("input", onInput);
   main.addEventListener("change", onInput);
   main.addEventListener("submit", onSubmit);
-  document.querySelector("#reset").addEventListener("click", () => {
-    restoreData();
+  document.querySelector("#gate").addEventListener("submit", onGateSubmit);
+  document.querySelector("#logout").addEventListener("click", async () => {
+    await sb.auth.signOut();
+    state.profile = null;
+    state.students = [];
+    state.people = [];
+    state.attempts = [];
+    state.mistakes = [];
+    state.authError = "";
+    state.authNotice = "";
+    applyAttempts([]);
     location.hash = "#/";
     render();
   });
   window.addEventListener("hashchange", () => {
     state.formError = "";
+    state.authError = "";
     render();
   });
-  if (!location.hash) location.hash = "#/";
-  render();
-  refreshGradeService();
+  const sessionResult = await sb.auth.getSession();
+  if (sessionResult.data.session) await loadWorkspace(sessionResult.data.session.user);
+  else render();
 });

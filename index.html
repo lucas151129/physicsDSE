@@ -12,7 +12,9 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="app">
+  <a class="teacher-entry" id="teacher-entry" href="#/teacher">教師</a>
+  <div class="gate" id="gate" hidden></div>
+  <div class="app" id="shell" hidden>
     <aside class="rail">
       <a class="brand" href="#/">
         <span class="brand-mark"><img src="assets/mark-orbit-wave.jpg" alt="" width="48" height="48"></span>
@@ -21,20 +23,19 @@
           <span class="brand-sub">物理必修</span>
         </span>
       </a>
-      <nav class="nav" aria-label="主要">
+      <nav class="nav" id="nav" aria-label="主要">
         <a href="#/" data-route="home">掌握情況</a>
-        <a href="#/practice/q-boyle" data-route="practice">做題</a>
+        <a href="#/practice" data-route="practice">做題</a>
         <a href="#/mistakes" data-route="mistakes">錯題本 <span class="count" id="mistake-count">0</span></a>
-        <a href="#/class" data-route="class">班別</a>
-        <a href="#/settings" data-route="settings">DeepSeek <span class="key-state" id="deepseek-state">未接上</span></a>
       </nav>
       <div class="rail-foot">
-        <p>範圍依照高中物理必修部分，共 184 小時。選修不在這版。</p>
-        <button type="button" id="reset">還原示例數據</button>
+        <p id="who"></p>
+        <button type="button" id="logout" class="quiet">登出</button>
       </div>
     </aside>
     <main id="main" tabindex="-1"></main>
   </div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/supabase-config.js"></script>
   <script src="data.js"></script>
   <script src="grader.js"></script>
