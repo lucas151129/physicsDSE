@@ -120,6 +120,7 @@ function route() {
   const parts = (location.hash.replace(/^#/, "") || "/").split("/").filter(Boolean);
   const name = parts[0] || "home";
   if (name === "chapter") return { name, id: parts[1] };
+  if (name === "point") return { name, id: parts[1] };
   if (name === "practice") return { name, id: parts[1] || "" };
   if (name === "mistakes") return { name, filter: parts[1] || "all" };
   if (name === "teacher") return { name: "teacher" };
@@ -138,6 +139,14 @@ function isStaff(profile) {
 
 function chapterById(id) {
   return this.CHAPTERS.find((chapter) => chapter.id === id) || null;
+}
+
+function pointOpen(kp) {
+  return Boolean(kp && kp.open);
+}
+
+function chapterOpen(chapter) {
+  return allPoints(chapter).some(pointOpen);
 }
 
 function questionById(id) {
@@ -300,7 +309,7 @@ function render() {
     location.hash = "#/";
     return;
   }
-  if (isStaff(state.profile) && ["home", "chapter", "practice", "mistakes", "register", "teacher"].includes(current.name)) {
+  if (isStaff(state.profile) && ["home", "chapter", "practice", "mistakes", "register", "teacher", "point"].includes(current.name)) {
     location.hash = "#/students";
     return;
   }
@@ -309,6 +318,7 @@ function render() {
   const titles = {
     home: "掌握情況",
     chapter: "課題",
+    point: "知識點",
     practice: "做題",
     mistakes: "錯題本",
     students: "學生",
@@ -324,6 +334,7 @@ function render() {
     state.mistakes = deriveMistakes(state.attempts);
   }
   if (current.name === "chapter") main.innerHTML = renderChapter(current.id);
+  else if (current.name === "point") main.innerHTML = renderPoint(current.id);
   else if (current.name === "practice") main.innerHTML = renderPractice(current.id);
   else if (current.name === "mistakes") main.innerHTML = renderMistakes(current.filter);
   else if (current.name === "students") main.innerHTML = renderStudentList();
@@ -446,14 +457,19 @@ function renderHome() {
   const weak = weakPoints("student");
   const rows = chapters
     .map((chapter) => {
+      const open = chapterOpen(chapter);
       const stats = summarize(allPoints(chapter), "student");
       const low = lowestPoint(chapter);
-      const width = stats.mastery == null ? 0 : Math.round(stats.mastery);
-      const sub = low
-        ? "最弱：" + low.name + " · 覆蓋 " + stats.started + "/" + stats.total + " · " + chapter.hours + " 小時"
-        : "未開始 · " + chapter.hours + " 小時";
+      const width = !open || stats.mastery == null ? 0 : Math.round(stats.mastery);
+      const sub = open
+        ? low
+          ? "最弱：" + low.name + " · 覆蓋 " + stats.started + "/" + stats.total + " · " + chapter.hours + " 小時"
+          : "未開始 · " + chapter.hours + " 小時"
+        : "待開放";
       return (
-        '<a class="chapter-row" href="#/chapter/' +
+        '<a class="chapter-row' +
+        (open ? "" : " closed") +
+        '" href="#/chapter/' +
         chapter.id +
         '">' +
         '<img src="' +
@@ -476,8 +492,8 @@ function renderHome() {
         chapter.color +
         '"></span></span></span>' +
         '<span class="pct">' +
-        pctText(stats.mastery) +
-        "<small>%</small></span></a>"
+        (open ? pctText(stats.mastery) + "<small>%</small>" : "待開放") +
+        "</span></a>"
       );
     })
     .join("");
@@ -512,34 +528,40 @@ function renderChapter(id) {
   const chapter = chapterById(id);
   if (!chapter) return '<div class="wrap"><p>找不到這個課題。</p></div>';
   const stats = summarize(allPoints(chapter), "student");
-  const groups = chapter.groups
-    .map((group) => {
-      const rows = group.points
-        .map((kp) => {
-          const label = band(kp);
-          const width = kp.score == null ? 0 : Math.round(kp.score);
-          return (
-            '<div class="kp"><span class="kp-name">' +
-            esc(kp.name) +
-            '</span><span class="band ' +
-            label.key +
-            '">' +
-            label.label +
-            '</span><span class="bar"><span style="width:' +
-            width +
-            "%;background:" +
-            chapter.color +
-            '"></span></span><span class="pct">' +
-            pctText(kp.score) +
-            '<small>%</small></span><span class="tries">' +
-            (kp.n ? kp.n + " 次" : "") +
-            "</span></div>"
-          );
-        })
-        .join("");
-      return '<h2 class="group-label">（' + group.code + "）" + esc(group.name) + "</h2>" + rows;
-    })
-    .join("");
+  const openRows = [];
+  const closedRows = [];
+  for (const group of chapter.groups) {
+    for (const kp of group.points) {
+      if (!pointOpen(kp)) {
+        closedRows.push('<div class="kp closed"><span class="kp-name">' + esc(kp.name) + '</span><span class="band none">待開放</span></div>');
+        continue;
+      }
+      const label = band(kp);
+      const width = kp.score == null ? 0 : Math.round(kp.score);
+      openRows.push(
+        '<a class="kp" href="#/point/' +
+          kp.id +
+          '"><span class="kp-name">' +
+          esc(kp.name) +
+          '</span><span class="band ' +
+          label.key +
+          '">' +
+          label.label +
+          '</span><span class="bar"><span style="width:' +
+          width +
+          "%;background:" +
+          chapter.color +
+          '"></span></span><span class="pct">' +
+          pctText(kp.score) +
+          '<small>%</small></span><span class="tries">' +
+          (kp.n ? kp.n + " 次" : "做題") +
+          "</span></a>"
+      );
+    }
+  }
+  const groups =
+    (openRows.length ? '<h2 class="group-label">已開放</h2>' + openRows.join("") : "") +
+    (closedRows.length ? '<h2 class="group-label">待開放</h2>' + closedRows.join("") : "");
   return (
     '<div class="wrap"><a class="back" href="#/">返回掌握情況</a><div class="hero"><img src="' +
     chapter.image +
@@ -566,43 +588,145 @@ function renderChapter(id) {
   );
 }
 
-function renderPractice(id) {
-  if (!this.QUESTIONS.length) {
-    return '<div class="wrap"><p class="kicker">題庫</p><h1>做題</h1><p class="lede">尚未有題目。</p></div>';
+function questionKind(question) {
+  if (question.type === "mc") return "選擇題";
+  if (question.length === "long") return "計算題 · 長題目";
+  return "計算題 · 短題目";
+}
+
+function questionsFor(kpId) {
+  return this.QUESTIONS.filter((question) => question.kpId === kpId);
+}
+
+function renderMomentNotes() {
+  const notes = this.MOMENT_NOTES;
+  if (!notes) return "";
+  return (
+    '<p class="kicker">先看這頁，再做題</p><h1>' +
+    esc(notes.title) +
+    "</h1>" +
+    notes.sections
+      .map(
+        (section) =>
+          '<h2 class="group-label">' + esc(section.heading) + '</h2><p class="lede">' + esc(section.body) + "</p>"
+      )
+      .join("")
+  );
+}
+
+function renderPoint(id) {
+  const found = findKp(id);
+  if (!found || !pointOpen(found.kp)) {
+    return '<div class="wrap"><a class="back" href="#/">返回掌握情況</a><h1>待開放</h1><p class="lede">這個知識點尚未開放。</p></div>';
   }
-  const question = questionById(id);
+  const questions = questionsFor(id);
+  const list = questions
+    .map((question, index) => {
+      return (
+        '<a class="chapter-row" href="#/practice/' +
+        question.id +
+        '"><span class="idx" style="color:' +
+        found.chapter.color +
+        '">' +
+        String(index + 1).padStart(2, "0") +
+        '</span><span><span class="chapter-name">' +
+        esc(question.title) +
+        '</span><span class="chapter-sub">' +
+        esc(questionKind(question)) +
+        " · " +
+        question.marks +
+        " 分</span></span></a>"
+      );
+    })
+    .join("");
+  const notes = id === "motion.moment" ? renderMomentNotes() : "";
+  return (
+    '<div class="wrap"><a class="back" href="#/chapter/' +
+    found.chapter.id +
+    '">返回' +
+    esc(found.chapter.name) +
+    "</a>" +
+    (notes || '<p class="kicker">' + esc(found.chapter.name) + "</p><h1>" + esc(found.kp.name) + "</h1>") +
+    '<h2 class="group-label">做題</h2><div class="chapter-list">' +
+    (list || '<p class="empty">尚未有題目。</p>') +
+    "</div></div>"
+  );
+}
+
+function renderPractice(id) {
+  const question = questionById(id) || this.QUESTIONS[0];
   if (!question) {
     return '<div class="wrap"><p class="kicker">題庫</p><h1>做題</h1><p class="lede">尚未有題目。</p></div>';
   }
   const found = findKp(question.kpId);
+  if (!found || !pointOpen(found.kp)) {
+    return '<div class="wrap"><a class="back" href="#/">返回掌握情況</a><h1>待開放</h1></div>';
+  }
   const draft = state.drafts[question.id] || {};
-  const index = this.QUESTIONS.map((item, number) => {
-    const current = item.id === question.id ? ' aria-current="page"' : "";
-    return (
-      '<a href="#/practice/' +
-      item.id +
-      '"' +
-      current +
-      '><span class="q-no">0' +
-      (number + 1) +
-      " · " +
-      esc(item.grader) +
-      "</span><strong>" +
-      esc(item.title) +
-      "</strong><em>" +
-      esc(found && item.id === question.id ? found.chapter.name : chapterById(item.chapterId).name) +
-      "</em></a>"
-    );
-  }).join("");
+  const pool = questionsFor(question.kpId);
+  const index = pool
+    .map((item, number) => {
+      const current = item.id === question.id ? ' aria-current="page"' : "";
+      return (
+        '<a href="#/practice/' +
+        item.id +
+        '"' +
+        current +
+        '><span class="q-no">' +
+        String(number + 1).padStart(2, "0") +
+        " · " +
+        esc(questionKind(item)) +
+        "</span><strong>" +
+        esc(item.title) +
+        "</strong></a>"
+      );
+    })
+    .join("");
+  const error = state.formError ? '<p class="form-error">' + esc(state.formError) + "</p>" : "";
+  const actions =
+    question.type === "mc"
+      ? '<div class="actions"><button class="btn" type="submit"' +
+        (state.grading ? " disabled" : "") +
+        ">" +
+        (state.grading ? "請稍候…" : "批改這題") +
+        '</button><button class="btn quiet" type="button" data-act="analyze" data-qid="' +
+        question.id +
+        '"' +
+        (state.grading ? " disabled" : "") +
+        ">AI 分析</button></div>"
+      : '<div class="upload"><label class="btn file-btn">拍照或上傳<input class="work-file" type="file" accept="image/*,.pdf,application/pdf" data-qid="' +
+        question.id +
+        '"></label><p class="grader-note">' +
+        esc(draft.fileLabel || "可以拍照，或上傳 jpg、png、PDF。") +
+        "</p>" +
+        (draft.preview ? '<img class="work-preview" alt="已上傳的作答" src="' + draft.preview + '">' : "") +
+        '</div><div class="actions"><button class="btn" type="button" data-act="grade-image" data-qid="' +
+        question.id +
+        '"' +
+        (state.grading ? " disabled" : "") +
+        ">" +
+        (state.grading ? "請稍候…" : "AI 改題") +
+        '</button><button class="btn quiet" type="button" data-act="show-answer" data-qid="' +
+        question.id +
+        '">' +
+        (draft.showAnswer ? "收起答案" : "顯示答案") +
+        '</button><button class="btn quiet" type="button" data-act="analyze" data-qid="' +
+        question.id +
+        '"' +
+        (state.grading ? " disabled" : "") +
+        ">AI 分析</button></div>";
   return (
-    '<div class="wrap"><p class="kicker">選擇、數值、結構</p><h1>做題</h1>' +
-    '<p class="lede">選擇題和數值題由程式對答案。結構題把作答送到批改服務，標準答案不放在這個頁面。</p>' +
+    '<div class="wrap"><a class="back" href="#/point/' +
+    found.kp.id +
+    '">返回' +
+    esc(found.kp.name) +
+    '</a><p class="kicker">' +
+    esc(questionKind(question)) +
+    "</p><h1>做題</h1>" +
     '<nav class="q-index">' +
     index +
     "</nav>" +
     '<article class="question"><p class="kicker">' +
-    esc(found.chapter.name) +
-    " · " +
     esc(found.kp.name) +
     " · " +
     question.marks +
@@ -616,35 +740,43 @@ function renderPractice(id) {
     question.id +
     '">' +
     renderFields(question, draft) +
-    (state.formError && state.lastResult == null
-      ? '<p class="form-error">' + esc(state.formError) + "</p>"
-      : state.formError
-        ? '<p class="form-error">' + esc(state.formError) + "</p>"
-        : "") +
-    '<div class="actions"><button class="btn" type="submit"' +
-    (state.grading ? " disabled" : "") +
-    ">" +
-    (state.grading ? "批改中…" : "批改這題") +
-    "</button></div></form>" +
+    error +
+    actions +
+    "</form>" +
+    renderAnswer(question, draft) +
+    renderAnalysis(draft) +
     renderResult(question) +
     "</article></div>"
   );
 }
 
+function renderAnswer(question, draft) {
+  if (!draft.showAnswer) return "";
+  const parts = Array.isArray(question.solution) ? question.solution : [question.solution || ""];
+  return (
+    '<section class="answer-doc"><h3>參考答案</h3>' +
+    parts.map((part) => "<p>" + esc(part) + "</p>").join("") +
+    "</section>"
+  );
+}
+
+function renderAnalysis(draft) {
+  if (!draft.analysis) return "";
+  return '<section class="analysis"><h3>AI 分析</h3><p>' + esc(draft.analysis) + "</p></section>";
+}
+
 function graderNote(question) {
-  if (question.type === "structured") {
-    if (deepseekReady()) {
-      return '<p class="grader-note">這題由伺服器上的 DeepSeek 按評分準則批改。網頁裡沒有金鑰，送出的是題目、準則和這次答案。</p>';
-    }
-    return '<p class="grader-note">批改服務尚未接上，這次先用要點對照。金鑰放在伺服器，學生頁面裡看不到。</p>';
+  if (question.type === "calc") {
+    return '<p class="grader-note">拍照或上傳作答後可以 AI 改題。PDF 只讀前兩頁。也可以直接看參考答案，或請 AI 分析這題。金鑰只在伺服器。</p>';
   }
-  if (question.type === "numeric") {
-    return '<p class="grader-note">程式核對最終數值和單位。可辨認的錯步會按題目設定給部分分，並寫出錯在哪一步。</p>';
+  if (question.type === "mc") {
+    return '<p class="grader-note">選擇題先由程式對答案。AI 分析會說明正確項和其他選項的分別，由伺服器呼叫 DeepSeek。</p>';
   }
-  return '<p class="grader-note">選擇題即時對答案，不呼叫模型。</p>';
+  return "";
 }
 
 function renderFields(question, draft) {
+  if (question.type === "calc") return "";
   if (question.type === "mc") {
     return (
       '<ul class="choices">' +
@@ -817,8 +949,134 @@ function onMainClick(event) {
     return;
   }
   const act = event.target.closest("[data-act]");
-  if (!act) return;
+  if (!act || act.disabled) return;
   if (act.dataset.act === "check-service") refreshGradeService();
+  if (act.dataset.act === "show-answer") toggleAnswer(act.dataset.qid);
+  if (act.dataset.act === "analyze") runAnalysis(act.dataset.qid);
+  if (act.dataset.act === "grade-image") runImageGrade(act.dataset.qid);
+}
+
+function serviceMessage(err, fallback) {
+  const message = String((err && err.message) || "");
+  if (message.includes("請先寫下解釋")) return "伺服器上的批改功能還沒有這一步。請重新部署 grade-physics，並設定 DEEPSEEK_API_KEY。";
+  return message || fallback;
+}
+
+function toggleAnswer(qid) {
+  const draft = state.drafts[qid] || {};
+  draft.showAnswer = !draft.showAnswer;
+  state.drafts[qid] = draft;
+  render();
+}
+
+async function runAnalysis(qid) {
+  const question = questionById(qid);
+  if (!question || state.grading) return;
+  state.grading = true;
+  state.formError = "";
+  render();
+  try {
+    const text = await analyzeQuestion(question);
+    const draft = state.drafts[qid] || {};
+    draft.analysis = text || "沒有收到分析。";
+    state.drafts[qid] = draft;
+  } catch (err) {
+    state.formError = serviceMessage(err, "分析失敗。");
+  }
+  state.grading = false;
+  render();
+}
+
+async function runImageGrade(qid) {
+  const question = questionById(qid);
+  const draft = state.drafts[qid] || {};
+  if (!question || state.grading) return;
+  if (!draft.images || !draft.images.length) {
+    state.formError = "請先拍照或上傳檔案。";
+    render();
+    return;
+  }
+  state.grading = true;
+  state.formError = "";
+  state.lastResult = null;
+  render();
+  try {
+    const graded = await gradeUploadedWork(question, draft.images);
+    finishGrade(question, graded);
+  } catch (err) {
+    state.grading = false;
+    state.formError = serviceMessage(err, "改題失敗。");
+    render();
+  }
+}
+
+async function onWorkFile(event) {
+  const input = event.target;
+  if (!input.classList || !input.classList.contains("work-file")) return;
+  const file = input.files && input.files[0];
+  const qid = input.dataset.qid;
+  if (!file || !qid) return;
+  state.formError = "";
+  state.grading = true;
+  render();
+  try {
+    const images = await fileToImages(file);
+    const draft = state.drafts[qid] || {};
+    draft.images = images;
+    draft.fileLabel = file.name;
+    draft.preview = images[0] || "";
+    state.drafts[qid] = draft;
+  } catch (err) {
+    state.formError = err.message || "檔案讀不到。";
+  }
+  state.grading = false;
+  render();
+}
+
+function resizeImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const max = 1400;
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", 0.72));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("這張圖片讀不到。"));
+    };
+    img.src = url;
+  });
+}
+
+async function fileToImages(file) {
+  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+  if (isPdf) {
+    if (!window.pdfjsLib) throw new Error("PDF 元件還沒載入，請改拍照或上傳圖片。");
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    const images = [];
+    const count = Math.min(pdf.numPages, 2);
+    for (let pageNumber = 1; pageNumber <= count; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1.3 });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport: viewport }).promise;
+      images.push(canvas.toDataURL("image/jpeg", 0.72));
+    }
+    if (!images.length) throw new Error("這份 PDF 沒有頁面。");
+    return images;
+  }
+  if (!/^image\//.test(file.type)) throw new Error("請上傳圖片或 PDF。");
+  return [await resizeImageFile(file)];
 }
 
 function onInput(event) {
@@ -864,6 +1122,7 @@ async function onSubmit(event) {
   event.preventDefault();
   const question = questionById(form.dataset.qid);
   if (!question || state.grading) return;
+  if (question.type === "calc") return;
   const data = new FormData(form);
   const response = {
     choice: data.get("choice") || "",
@@ -1131,6 +1390,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   main.addEventListener("click", onMainClick);
   main.addEventListener("input", onInput);
   main.addEventListener("change", onInput);
+  main.addEventListener("change", onWorkFile);
   main.addEventListener("submit", onSubmit);
   document.querySelector("#gate").addEventListener("submit", onGateSubmit);
   document.querySelector("#logout").addEventListener("click", async () => {

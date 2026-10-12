@@ -128,7 +128,8 @@ this.CHAPTERS = [
           },
           {
             "id": "motion.components",
-            "name": "力的合成與分解"
+            "name": "力的合成與分解進階題",
+            "open": true
           },
           {
             "id": "motion.n2",
@@ -144,7 +145,8 @@ this.CHAPTERS = [
           },
           {
             "id": "motion.moment",
-            "name": "力矩、力偶與重心"
+            "name": "力矩",
+            "open": true
           }
         ]
       },

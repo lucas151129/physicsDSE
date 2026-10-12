@@ -114,3 +114,48 @@ async function gradeWithDeepseek(question, answerText) {
   if (graded.error) throw new Error(graded.error);
   return graded;
 }
+
+async function callGradeService(payload) {
+  let response;
+  try {
+    response = await fetch(GRADE_ENDPOINT, {
+      method: "POST",
+      headers: gradeAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    throw new Error("連不到批改服務。");
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "批改服務暫時無法使用。");
+  return data;
+}
+
+async function analyzeQuestion(question) {
+  const data = await callGradeService({
+    task: "analyze",
+    kind: question.type,
+    stem: question.stem,
+    choices: question.choices || null,
+    reference: solutionText(question),
+  });
+  return String(data.analysis || "").trim();
+}
+
+function solutionText(question) {
+  if (Array.isArray(question.solution)) return question.solution.join("\n");
+  return question.solution || "";
+}
+
+async function gradeUploadedWork(question, images) {
+  const data = await callGradeService({
+    task: "grade-image",
+    stem: question.stem,
+    reference: solutionText(question),
+    scheme: (question.points || []).map((point) => ({ id: point.id, marks: point.marks, text: point.text })),
+    images: images,
+  });
+  const graded = interpretDeepseekGrade(question, "", data.content);
+  if (graded.error) throw new Error(graded.error);
+  return graded;
+}

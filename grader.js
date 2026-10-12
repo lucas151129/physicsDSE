@@ -90,7 +90,7 @@ function gradeMc(question, response) {
   return {
     earned: correct ? question.marks : 0,
     marks: question.marks,
-    headline: correct ? "選對了" : "這項不是波義耳定律",
+    headline: correct ? "選對了" : "這項不對",
     detail: correct
       ? question.notes[question.answer]
       : note + " 正確是 " + question.answer + "：" + right.text + "。" + question.notes[question.answer],

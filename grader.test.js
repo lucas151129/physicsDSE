@@ -108,3 +108,42 @@ assert(
     chapter.groups.every((group) => group.points.every((kp) => kp.score == null && kp.n == null))
   )
 );
+
+const openPoints = [];
+for (const chapter of CHAPTERS) {
+  for (const group of chapter.groups) {
+    for (const kp of group.points) {
+      if (kp.open) openPoints.push(kp);
+    }
+  }
+}
+assert(
+  "only two points open",
+  openPoints.length === 2 &&
+    openPoints[0].id === "motion.components" &&
+    openPoints[0].name === "力的合成與分解進階題" &&
+    openPoints[1].id === "motion.moment" &&
+    openPoints[1].name === "力矩"
+);
+
+const bank = {};
+vm.createContext(bank);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "questions.js"), "utf8"), bank);
+assert("ten practice questions", bank.QUESTIONS.length === 10);
+assert(
+  "questions are mc or calc",
+  bank.QUESTIONS.every((item) => item.type === "mc" || item.type === "calc")
+);
+assert(
+  "calc questions are short or long",
+  bank.QUESTIONS.filter((item) => item.type === "calc").every((item) => item.length === "short" || item.length === "long")
+);
+assert(
+  "questions stay on the open points",
+  bank.QUESTIONS.every((item) => item.kpId === "motion.components" || item.kpId === "motion.moment")
+);
+assert("moment notes", bank.MOMENT_NOTES && bank.MOMENT_NOTES.title === "力矩知識點總結" && bank.MOMENT_NOTES.sections.length === 4);
+const bankText = JSON.stringify(bank.QUESTIONS) + JSON.stringify(bank.MOMENT_NOTES);
+assert("bank is not the publisher paper", !/07A1Q|活學物理|Pearson/.test(bankText));
+const beam = bank.QUESTIONS.find((item) => item.id === "moment-long-1");
+assert("beam answer", Array.isArray(beam.solution) && beam.solution.join(" ").includes("70 N"));

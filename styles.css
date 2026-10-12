@@ -739,6 +739,35 @@ button.quiet {
   font-size: 14px;
 }
 
+a.kp { color: inherit; text-decoration: none; }
+
+.kp.closed { grid-template-columns: minmax(0, 1fr) auto; }
+
+.chapter-row.closed .pct { font-size: 15px; letter-spacing: 0; }
+
+.file-btn { position: relative; display: inline-block; }
+
+.file-btn input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.work-preview {
+  max-width: 420px;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+}
+
+.answer-doc, .analysis {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ink);
+}
+
+.answer-doc p, .analysis p { white-space: pre-wrap; }
+
 .empty {
   margin-top: 24px;
   padding-top: 18px;
