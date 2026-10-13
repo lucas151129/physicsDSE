@@ -118,21 +118,24 @@ for (const chapter of CHAPTERS) {
   }
 }
 assert(
-  "three points open",
-  openPoints.length === 3 &&
+  "four points open",
+  openPoints.length === 4 &&
     openPoints[0].id === "motion.components" &&
     openPoints[0].name === "力的合成與分解進階題" &&
     openPoints[1].id === "motion.moment" &&
     openPoints[1].name === "力矩" &&
     openPoints[2].id === "motion.energy" &&
-    openPoints[2].name === "能量守恆"
+    openPoints[2].name === "能量守恆" &&
+    openPoints[3].id === "motion.circular" &&
+    openPoints[3].name === "勻速圓周運動"
 );
 
 const bank = {};
 vm.createContext(bank);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "questions.js"), "utf8"), bank);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "questions-energy.js"), "utf8"), bank);
-assert("seventy practice questions", bank.QUESTIONS.length === 70);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "questions-circular.js"), "utf8"), bank);
+assert("one hundred fourteen practice questions", bank.QUESTIONS.length === 114);
 assert(
   "questions are mc or calc",
   bank.QUESTIONS.every((item) => item.type === "mc" || item.type === "calc")
@@ -143,7 +146,13 @@ assert(
 );
 assert(
   "questions stay on the open points",
-  bank.QUESTIONS.every((item) => item.kpId === "motion.components" || item.kpId === "motion.moment" || item.kpId === "motion.energy")
+  bank.QUESTIONS.every(
+    (item) =>
+      item.kpId === "motion.components" ||
+      item.kpId === "motion.moment" ||
+      item.kpId === "motion.energy" ||
+      item.kpId === "motion.circular"
+  )
 );
 const energy = bank.QUESTIONS.filter((item) => item.kpId === "motion.energy");
 assert("forty energy multiple choice", energy.filter((item) => item.type === "mc").length === 40);
@@ -161,6 +170,16 @@ assert(
     (item) => item.points.reduce((sum, point) => sum + point.marks, 0) === item.marks
   )
 );
+const circular = bank.QUESTIONS.filter((item) => item.kpId === "motion.circular");
+assert("thirty circular multiple choice", circular.filter((item) => item.type === "mc").length === 30);
+assert("fourteen circular calculations", circular.filter((item) => item.type === "calc").length === 14);
+assert(
+  "circular levels",
+  circular.filter((item) => item.level === "1" && item.type === "mc").length === 16 &&
+    circular.filter((item) => item.level === "2" && item.type === "mc").length === 14 &&
+    circular.filter((item) => item.level === "1" && item.type === "calc").length === 8 &&
+    circular.filter((item) => item.level === "2" && item.type === "calc").length === 6
+);
 const expectAnswer = {
   "energy-mc-01": "C",
   "energy-mc-12": "C",
@@ -170,6 +189,13 @@ const expectAnswer = {
   "energy-mc-24": "C",
   "energy-mc-31": "B",
   "energy-mc-40": "B",
+  "circ-mc-01": "D",
+  "circ-mc-06": "C",
+  "circ-mc-09": "C",
+  "circ-mc-17": "C",
+  "circ-mc-20": "B",
+  "circ-mc-27": "B",
+  "circ-mc-30": "B",
 };
 for (const [id, answer] of Object.entries(expectAnswer)) {
   assert(id + " key", bank.QUESTIONS.find((item) => item.id === id).answer === answer);
@@ -185,6 +211,12 @@ const expectText = {
   "energy-calc-16": "0.8 m",
   "energy-calc-19": "10 m/s",
   "energy-calc-20": "15 J",
+  "circ-calc-03": "2π rad/s",
+  "circ-calc-04": "18 m/s²",
+  "circ-calc-09": "9 N",
+  "circ-calc-10": "8 m/s",
+  "circ-calc-13": "2 m",
+  "circ-calc-14": "0.4",
 };
 for (const [id, text] of Object.entries(expectText)) {
   const item = bank.QUESTIONS.find((question) => question.id === id);
@@ -192,6 +224,6 @@ for (const [id, text] of Object.entries(expectText)) {
 }
 assert("moment notes", bank.MOMENT_NOTES && bank.MOMENT_NOTES.title === "力矩知識點總結" && bank.MOMENT_NOTES.sections.length === 4);
 const bankText = JSON.stringify(bank.QUESTIONS) + JSON.stringify(bank.MOMENT_NOTES);
-assert("bank is not the publisher paper", !/07A1Q|活學物理|Pearson/.test(bankText));
+assert("bank is not the publisher paper", !/07A1Q|11A1Q|活學物理|Pearson|牛津|LAGEOS|Shutterstock/.test(bankText));
 const beam = bank.QUESTIONS.find((item) => item.id === "moment-long-1");
 assert("beam answer", Array.isArray(beam.solution) && beam.solution.join(" ").includes("70 N"));

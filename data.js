@@ -211,7 +211,8 @@ this.CHAPTERS = [
         "points": [
           {
             "id": "motion.circular",
-            "name": "勻速圓周運動"
+            "name": "勻速圓周運動",
+            "open": true
           }
         ]
       },

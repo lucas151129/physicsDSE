@@ -664,6 +664,10 @@ function renderPoint(id) {
     id === "motion.energy"
       ? '<p class="lede">程度一是單一關係，程度二要把兩個高度、摩擦或外力作功放在一起。數值題取 g = 10 m/s²。</p>'
       : "";
+  const circularNote =
+    id === "motion.circular"
+      ? '<p class="lede">程度一是弧度、角速度、線速率和向心加速度。程度二要把向心力的來源算進去，例如繩的張力或水平路面的側向摩擦力。速率不變並不表示加速度為零。需要重量時取 g = 10 m/s²。</p>'
+      : "";
   return (
     '<div class="wrap"><a class="back" href="#/chapter/' +
     found.chapter.id +
@@ -672,6 +676,7 @@ function renderPoint(id) {
     "</a>" +
     (notes || '<p class="kicker">' + esc(found.chapter.name) + "</p><h1>" + esc(found.kp.name) + "</h1>") +
     energyNote +
+    circularNote +
     '<h2 class="group-label">做題</h2><div class="chapter-list">' +
     (list || '<p class="empty">尚未有題目。</p>') +
     "</div></div>"
