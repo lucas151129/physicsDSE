@@ -645,7 +645,7 @@ function renderPoint(id) {
       const showHeading = levelCount === 1 && level ? heading : "";
       return (
         showHeading +
-        '<a class="chapter-row" href="#/practice/' +
+        '<a class="question-link" href="#/practice/' +
         question.id +
         '"><span class="idx" style="color:' +
         found.chapter.color +
@@ -746,18 +746,13 @@ function renderPractice(id) {
     '">返回' +
     esc(found.kp.name) +
     '</a><p class="kicker">' +
-    esc(questionKind(question)) +
-    "</p><h1>做題</h1>" +
-    '<nav class="q-index">' +
-    index +
-    "</nav>" +
+    esc(questionMeta(question)) +
+    "</p><h1>" +
+    esc(question.title) +
+    "</h1>" +
     '<article class="question"><p class="kicker">' +
     esc(found.kp.name) +
-    " · " +
-    question.marks +
-    ' 分</p><h2>' +
-    esc(question.title) +
-    '</h2><p class="stem">' +
+    "</p><p class=\"stem\">" +
     esc(question.stem) +
     "</p>" +
     graderNote(question) +
@@ -771,7 +766,10 @@ function renderPractice(id) {
     renderAnswer(question, draft) +
     renderAnalysis(draft) +
     renderResult(question) +
-    "</article></div>"
+    "</article>" +
+    '<nav class="q-index" aria-label="本題庫">' +
+    index +
+    "</nav></div>"
   );
 }
 
