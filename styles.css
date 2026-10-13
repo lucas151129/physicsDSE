@@ -538,6 +538,27 @@ h1 {
   white-space: pre-wrap;
 }
 
+.q-figure {
+  margin: 18px 0 0;
+  max-width: 640px;
+  background: #f7f3ea;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 8px 8px 2px;
+}
+
+.q-figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.q-figure figcaption {
+  margin: 2px 8px 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .grader-note {
   max-width: 68ch;
   margin: 10px 0 0;

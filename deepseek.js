@@ -74,7 +74,8 @@ async function refreshGradeService() {
       body: JSON.stringify({ ping: true }),
     });
     const data = await response.json().catch(() => ({}));
-    if (response.ok && data.configured) state.gradeService = "ready";
+    if (response.status === 404) state.gradeService = "absent";
+    else if (response.ok && data.configured) state.gradeService = "ready";
     else if (response.ok && data.configured === false) state.gradeService = "missing";
     else state.gradeService = "down";
   } catch (err) {
@@ -127,6 +128,7 @@ async function callGradeService(payload) {
     throw new Error("連不到批改服務。");
   }
   const data = await response.json().catch(() => ({}));
+  if (response.status === 404) throw new Error("批改功能還沒有部署。");
   if (!response.ok) throw new Error(data.error || "批改服務暫時無法使用。");
   return data;
 }

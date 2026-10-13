@@ -227,3 +227,18 @@ const bankText = JSON.stringify(bank.QUESTIONS) + JSON.stringify(bank.MOMENT_NOT
 assert("bank is not the publisher paper", !/07A1Q|11A1Q|活學物理|Pearson|牛津|LAGEOS|Shutterstock/.test(bankText));
 const beam = bank.QUESTIONS.find((item) => item.id === "moment-long-1");
 assert("beam answer", Array.isArray(beam.solution) && beam.solution.join(" ").includes("70 N"));
+vm.runInContext(fs.readFileSync(path.join(__dirname, "figures.js"), "utf8"), bank);
+assert("every question has a figure", bank.QUESTIONS.every((item) => bank.FIGURES[item.id]));
+assert(
+  "figures are svg",
+  bank.QUESTIONS.every((item) => {
+    const html = bank.questionFigure(item);
+    return html.includes("<svg") && html.includes("</svg>") && html.includes("<figcaption>") && !html.includes("<script");
+  })
+);
+const forceFig = bank.questionFigure(bank.QUESTIONS.find((item) => item.id === "force-mc-1"));
+assert("force figure shows the given forces", forceFig.includes("3 N") && forceFig.includes("4 N") && !forceFig.includes("5 N"));
+const energyFig = bank.questionFigure(bank.QUESTIONS.find((item) => item.id === "energy-mc-01"));
+assert("energy figure does not print the answer", energyFig.includes("3 kg") && energyFig.includes("4 m/s") && !energyFig.includes("24 J"));
+const beamFig = bank.questionFigure(beam);
+assert("beam figure leaves the supports unknown", beamFig.includes("80 N") && beamFig.includes("40 N") && !beamFig.includes("70 N") && !beamFig.includes("50 N"));

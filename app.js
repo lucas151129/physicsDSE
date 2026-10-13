@@ -6,6 +6,7 @@ const state = {
   mistakes: [],
   grading: false,
   gradeService: "down",
+  gradeChecked: false,
   profile: null,
   students: [],
   people: [],
@@ -684,6 +685,7 @@ function renderPoint(id) {
 }
 
 function renderPractice(id) {
+  ensureGradeService();
   const question = questionById(id) || this.QUESTIONS[0];
   if (!question) {
     return '<div class="wrap"><p class="kicker">題庫</p><h1>做題</h1><p class="lede">尚未有題目。</p></div>';
@@ -760,6 +762,7 @@ function renderPractice(id) {
     "</p><p class=\"stem\">" +
     esc(question.stem) +
     "</p>" +
+    (typeof questionFigure === "function" ? questionFigure(question) : "") +
     graderNote(question) +
     '<form class="answer" data-qid="' +
     question.id +
@@ -793,14 +796,23 @@ function renderAnalysis(draft) {
   return '<section class="analysis"><h3>AI 分析</h3><p>' + esc(draft.analysis) + "</p></section>";
 }
 
+function aiStatusLine() {
+  if (state.gradeService === "ready") return "AI 分析與改題已連上。";
+  if (state.gradeService === "missing") return "批改服務還沒有設定 DEEPSEEK_API_KEY。";
+  if (state.gradeService === "absent") return "AI 分析與改題還沒有部署到 Supabase。";
+  if (state.gradeService === "checking") return "正在檢查 AI 批改服務。";
+  return "AI 分析與改題尚未連上。";
+}
+
 function graderNote(question) {
+  const status = '<p class="grader-note">' + esc(aiStatusLine()) + "</p>";
   if (question.type === "calc") {
-    return '<p class="grader-note">拍照或上傳作答後可以 AI 改題。PDF 只讀前兩頁。也可以直接看參考答案，或請 AI 分析這題。金鑰只在伺服器。</p>';
+    return status + '<p class="grader-note">拍照或上傳作答後可以 AI 改題。PDF 只讀前兩頁。也可以直接看參考答案，或請 AI 分析這題。金鑰只在伺服器。</p>';
   }
   if (question.type === "mc") {
-    return '<p class="grader-note">選擇題先由程式對答案。AI 分析會說明正確項和其他選項的分別，由伺服器呼叫 DeepSeek。</p>';
+    return status + '<p class="grader-note">選擇題先由程式對答案。AI 分析會說明正確項和其他選項的分別，由伺服器呼叫 DeepSeek。</p>';
   }
-  return "";
+  return status;
 }
 
 function renderFields(question, draft) {
@@ -982,6 +994,12 @@ function onMainClick(event) {
   if (act.dataset.act === "show-answer") toggleAnswer(act.dataset.qid);
   if (act.dataset.act === "analyze") runAnalysis(act.dataset.qid);
   if (act.dataset.act === "grade-image") runImageGrade(act.dataset.qid);
+}
+
+function ensureGradeService() {
+  if (state.gradeChecked) return;
+  state.gradeChecked = true;
+  refreshGradeService();
 }
 
 function serviceMessage(err, fallback) {

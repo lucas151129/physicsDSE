@@ -1,0 +1,4 @@
+project_id = "inwrpyaaryzkkruzcbgm"
+
+[functions.grade-physics]
+verify_jwt = true
